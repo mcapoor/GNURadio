@@ -28,7 +28,7 @@ import threading
 
 
 
-class final(gr.top_block, Qt.QWidget):
+class simple_ook_transmitter(gr.top_block, Qt.QWidget):
 
     def __init__(self):
         gr.top_block.__init__(self, "ENGN 1580 Final Project", catch_exceptions=True)
@@ -51,7 +51,7 @@ class final(gr.top_block, Qt.QWidget):
         self.top_grid_layout = Qt.QGridLayout()
         self.top_layout.addLayout(self.top_grid_layout)
 
-        self.settings = Qt.QSettings("gnuradio/flowgraphs", "final")
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "simple_ook_transmitter")
 
         try:
             geometry = self.settings.value("geometry")
@@ -210,7 +210,7 @@ class final(gr.top_block, Qt.QWidget):
 
         self._qtgui_freq_sink_x_0_win = sip.wrapinstance(self.qtgui_freq_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_freq_sink_x_0_win)
-        self.blocks_vector_source_x_0 = blocks.vector_source_i([1]*int(3*samp_rate/8) + [0]*int(2*samp_rate/8) + [1, 0]*int(2*samp_rate/8) + [0]*int(samp_rate/8), True, 1, [])
+        self.blocks_vector_source_x_0 = blocks.vector_source_i([1]*int(3*samp_rate/8) + [0]*int(3*samp_rate/8) + [1, 0]*int(2*samp_rate/8) + [0]*int(samp_rate/8), True, 1, [])
         self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_float*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
         self.blocks_multiply_xx_0 = blocks.multiply_vff(1)
         self.blocks_int_to_float_0 = blocks.int_to_float(1, 1)
@@ -232,7 +232,7 @@ class final(gr.top_block, Qt.QWidget):
 
 
     def closeEvent(self, event):
-        self.settings = Qt.QSettings("gnuradio/flowgraphs", "final")
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "simple_ook_transmitter")
         self.settings.setValue("geometry", self.saveGeometry())
         self.stop()
         self.wait()
@@ -246,7 +246,7 @@ class final(gr.top_block, Qt.QWidget):
         self.samp_rate = samp_rate
         self.analog_sig_source_x_0.set_sampling_freq(self.samp_rate)
         self.blocks_throttle2_0.set_sample_rate(self.samp_rate)
-        self.blocks_vector_source_x_0.set_data([1]*int(3*self.samp_rate/8) + [0]*int(2*self.samp_rate/8) + [1, 0]*int(2*self.samp_rate/8) + [0]*int(self.samp_rate/8), [])
+        self.blocks_vector_source_x_0.set_data([1]*int(3*self.samp_rate/8) + [0]*int(3*self.samp_rate/8) + [1, 0]*int(2*self.samp_rate/8) + [0]*int(self.samp_rate/8), [])
         self.qtgui_freq_sink_x_0.set_frequency_range(0, self.samp_rate)
         self.qtgui_time_sink_x_0.set_samp_rate(self.samp_rate)
         self.qtgui_time_sink_x_0_0.set_samp_rate(self.samp_rate)
@@ -261,7 +261,7 @@ class final(gr.top_block, Qt.QWidget):
 
 
 
-def main(top_block_cls=final, options=None):
+def main(top_block_cls=simple_ook_transmitter, options=None):
 
     qapp = Qt.QApplication(sys.argv)
 
