@@ -49,19 +49,20 @@ def get_state_directory() -> str:
 sys.path.append(os.environ.get('GRC_HIER_PATH', get_state_directory()))
 
 from byte2float import byte2float  # grc-generated hier_block
+from cos_modulate import cos_modulate  # grc-generated hier_block
 from gnuradio import audio
 from gnuradio import blocks
-import numpy
 from gnuradio import digital
-from gnuradio import filter
-from gnuradio.filter import firdes
 from gnuradio import gr
+from gnuradio.filter import firdes
 from gnuradio.fft import window
 import signal
 from PyQt5 import Qt
 from argparse import ArgumentParser
 from gnuradio.eng_arg import eng_float, intx
 from gnuradio import eng_notation
+from sin_modulate import sin_modulate  # grc-generated hier_block
+import qpsk_transmitter_epy_block_0 as epy_block_0  # embedded python block
 import sip
 import threading
 
@@ -103,20 +104,26 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
         ##################################################
         # Variables
         ##################################################
+        self.samples_per_symbol = samples_per_symbol = 4
         self.samp_rate = samp_rate = 32000
         self.qpsk_constellation = qpsk_constellation = digital.constellation_rect([-1-1j, -1+1j, 1+1j, 1-1j], [0, 1, 3, 2],
         4, 2, 2, 1, 1).base()
         self.filter_roll_off = filter_roll_off = 0.35
+        self.carrier_freq = carrier_freq = 1000
 
         ##################################################
         # Blocks
         ##################################################
 
+        self.sin_modulate_0 = sin_modulate(
+            freq=carrier_freq,
+            samp_rate=samp_rate,
+        )
         self.qtgui_time_sink_x_0 = qtgui.time_sink_f(
-            (10*samp_rate), #size
+            samp_rate, #size
             samp_rate, #samp_rate
             'Wave', #name
-            2, #number of inputs
+            3, #number of inputs
             None # parent
         )
         self.qtgui_time_sink_x_0.set_update_time(0.10)
@@ -133,7 +140,7 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
         self.qtgui_time_sink_x_0.enable_stem_plot(False)
 
 
-        labels = ['Random Message', 'QPSK Modulated Message', 'Signal 3', 'Signal 4', 'Signal 5',
+        labels = ['Random Message', 'Constellation real part', 'Constellation imaginary part', 'Signal 4', 'Signal 5',
             'Signal 6', 'Signal 7', 'Signal 8', 'Signal 9', 'Signal 10']
         widths = [1, 1, 1, 1, 1,
             1, 1, 1, 1, 1]
@@ -147,7 +154,7 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
             -1, -1, -1, -1, -1]
 
 
-        for i in range(2):
+        for i in range(3):
             if len(labels[i]) == 0:
                 self.qtgui_time_sink_x_0.set_line_label(i, "Data {0}".format(i))
             else:
@@ -183,7 +190,7 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
 
         self.qtgui_freq_sink_x_0.set_plot_pos_half(not True)
 
-        labels = ['Random message', 'QPSK Modulated Message', 'Filtered Message', '', '',
+        labels = ['Random message', 'Constellation real part', 'Constellation imaginary part', '', '',
             '', '', '', '', '']
         widths = [1, 1, 1, 1, 1,
             1, 1, 1, 1, 1]
@@ -203,6 +210,53 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
 
         self._qtgui_freq_sink_x_0_win = sip.wrapinstance(self.qtgui_freq_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_freq_sink_x_0_win)
+        self.qtgui_eye_sink_x_0 = qtgui.eye_sink_f(
+            1024, #size
+            samp_rate, #samp_rate
+            2, #number of inputs
+            None
+        )
+        self.qtgui_eye_sink_x_0.set_update_time(0.10)
+        self.qtgui_eye_sink_x_0.set_samp_per_symbol(samples_per_symbol)
+        self.qtgui_eye_sink_x_0.set_y_axis(-1, 1)
+
+        self.qtgui_eye_sink_x_0.set_y_label('Amplitude', "")
+
+        self.qtgui_eye_sink_x_0.enable_tags(True)
+        self.qtgui_eye_sink_x_0.set_trigger_mode(qtgui.TRIG_MODE_FREE, qtgui.TRIG_SLOPE_POS, 0.0, 0, 0, "")
+        self.qtgui_eye_sink_x_0.enable_autoscale(False)
+        self.qtgui_eye_sink_x_0.enable_grid(False)
+        self.qtgui_eye_sink_x_0.enable_axis_labels(True)
+        self.qtgui_eye_sink_x_0.enable_control_panel(False)
+
+
+        labels = ['Real (cos)', 'Imaginary (sin)', 'Signal 3', 'Signal 4', 'Signal 5',
+            'Signal 6', 'Signal 7', 'Signal 8', 'Signal 9', 'Signal 10']
+        widths = [1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1]
+        colors = ['blue', 'blue', 'blue', 'blue', 'blue',
+            'blue', 'blue', 'blue', 'blue', 'blue']
+        alphas = [1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0]
+        styles = [1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1]
+        markers = [-1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1]
+
+
+        for i in range(2):
+            if len(labels[i]) == 0:
+                self.qtgui_eye_sink_x_0.set_line_label(i, "Eye[Data {0}]".format(i))
+            else:
+                self.qtgui_eye_sink_x_0.set_line_label(i, labels[i])
+            self.qtgui_eye_sink_x_0.set_line_width(i, widths[i])
+            self.qtgui_eye_sink_x_0.set_line_color(i, colors[i])
+            self.qtgui_eye_sink_x_0.set_line_style(i, styles[i])
+            self.qtgui_eye_sink_x_0.set_line_marker(i, markers[i])
+            self.qtgui_eye_sink_x_0.set_line_alpha(i, alphas[i])
+
+        self._qtgui_eye_sink_x_0_win = sip.wrapinstance(self.qtgui_eye_sink_x_0.qwidget(), Qt.QWidget)
+        self.top_layout.addWidget(self._qtgui_eye_sink_x_0_win)
         self.qtgui_const_sink_x_0 = qtgui.const_sink_c(
             1024, #size
             'Constellation Points', #name
@@ -244,38 +298,52 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
 
         self._qtgui_const_sink_x_0_win = sip.wrapinstance(self.qtgui_const_sink_x_0.qwidget(), Qt.QWidget)
         self.top_layout.addWidget(self._qtgui_const_sink_x_0_win)
-        self.filter_fft_rrc_filter_0 = filter.fft_filter_fff(1, firdes.root_raised_cosine(1, samp_rate, 1.0, 0.35, (11*samp_rate)), 1)
+        self.epy_block_0 = epy_block_0.blk(message='Hello, World!')
         self.digital_constellation_modulator_0 = digital.generic_mod(
             constellation=qpsk_constellation,
             differential=True,
-            samples_per_symbol=4,
+            samples_per_symbol=samples_per_symbol,
             pre_diff_code=True,
             excess_bw=filter_roll_off,
             verbose=False,
             log=False,
             truncate=False)
+        self.cos_modulate_0 = cos_modulate(
+            freq=carrier_freq,
+            samp_rate=samp_rate,
+        )
         self.byte2float_0 = byte2float()
         self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_char*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
+        self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(8)
         self.blocks_complex_to_real_0 = blocks.complex_to_real(1)
+        self.blocks_complex_to_imag_0 = blocks.complex_to_imag(1)
+        self.blocks_add_xx_0 = blocks.add_vff(1)
         self.audio_sink_0 = audio.sink(samp_rate, '', True)
-        self.analog_random_source_x_0 = blocks.vector_source_b(list(map(int, numpy.random.randint(0, 255, 1000))), True)
 
 
         ##################################################
         # Connections
         ##################################################
-        self.connect((self.analog_random_source_x_0, 0), (self.blocks_throttle2_0, 0))
-        self.connect((self.blocks_complex_to_real_0, 0), (self.filter_fft_rrc_filter_0, 0))
-        self.connect((self.blocks_complex_to_real_0, 0), (self.qtgui_freq_sink_x_0, 2))
+        self.connect((self.blocks_add_xx_0, 0), (self.audio_sink_0, 0))
+        self.connect((self.blocks_complex_to_imag_0, 0), (self.qtgui_freq_sink_x_0, 2))
+        self.connect((self.blocks_complex_to_imag_0, 0), (self.qtgui_time_sink_x_0, 2))
+        self.connect((self.blocks_complex_to_imag_0, 0), (self.sin_modulate_0, 0))
+        self.connect((self.blocks_complex_to_real_0, 0), (self.cos_modulate_0, 0))
+        self.connect((self.blocks_complex_to_real_0, 0), (self.qtgui_freq_sink_x_0, 1))
+        self.connect((self.blocks_complex_to_real_0, 0), (self.qtgui_time_sink_x_0, 1))
+        self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.blocks_throttle2_0, 0))
+        self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.digital_constellation_modulator_0, 0))
         self.connect((self.blocks_throttle2_0, 0), (self.byte2float_0, 0))
-        self.connect((self.blocks_throttle2_0, 0), (self.digital_constellation_modulator_0, 0))
         self.connect((self.byte2float_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.byte2float_0, 0), (self.qtgui_time_sink_x_0, 0))
+        self.connect((self.cos_modulate_0, 0), (self.blocks_add_xx_0, 0))
+        self.connect((self.cos_modulate_0, 0), (self.qtgui_eye_sink_x_0, 0))
+        self.connect((self.digital_constellation_modulator_0, 0), (self.blocks_complex_to_imag_0, 0))
         self.connect((self.digital_constellation_modulator_0, 0), (self.blocks_complex_to_real_0, 0))
         self.connect((self.digital_constellation_modulator_0, 0), (self.qtgui_const_sink_x_0, 0))
-        self.connect((self.filter_fft_rrc_filter_0, 0), (self.audio_sink_0, 0))
-        self.connect((self.filter_fft_rrc_filter_0, 0), (self.qtgui_freq_sink_x_0, 1))
-        self.connect((self.filter_fft_rrc_filter_0, 0), (self.qtgui_time_sink_x_0, 1))
+        self.connect((self.epy_block_0, 0), (self.blocks_pack_k_bits_bb_0, 0))
+        self.connect((self.sin_modulate_0, 0), (self.blocks_add_xx_0, 1))
+        self.connect((self.sin_modulate_0, 0), (self.qtgui_eye_sink_x_0, 1))
 
 
     def closeEvent(self, event):
@@ -286,15 +354,24 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
 
         event.accept()
 
+    def get_samples_per_symbol(self):
+        return self.samples_per_symbol
+
+    def set_samples_per_symbol(self, samples_per_symbol):
+        self.samples_per_symbol = samples_per_symbol
+        self.qtgui_eye_sink_x_0.set_samp_per_symbol(self.samples_per_symbol)
+
     def get_samp_rate(self):
         return self.samp_rate
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
         self.blocks_throttle2_0.set_sample_rate(self.samp_rate)
-        self.filter_fft_rrc_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, 1.0, 0.35, (11*self.samp_rate)))
+        self.cos_modulate_0.set_samp_rate(self.samp_rate)
+        self.qtgui_eye_sink_x_0.set_samp_rate(self.samp_rate)
         self.qtgui_freq_sink_x_0.set_frequency_range(0, self.samp_rate)
         self.qtgui_time_sink_x_0.set_samp_rate(self.samp_rate)
+        self.sin_modulate_0.set_samp_rate(self.samp_rate)
 
     def get_qpsk_constellation(self):
         return self.qpsk_constellation
@@ -307,6 +384,14 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
 
     def set_filter_roll_off(self, filter_roll_off):
         self.filter_roll_off = filter_roll_off
+
+    def get_carrier_freq(self):
+        return self.carrier_freq
+
+    def set_carrier_freq(self, carrier_freq):
+        self.carrier_freq = carrier_freq
+        self.cos_modulate_0.set_freq(self.carrier_freq)
+        self.sin_modulate_0.set_freq(self.carrier_freq)
 
 
 
