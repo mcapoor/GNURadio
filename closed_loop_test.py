@@ -22,9 +22,9 @@ plt.ion()
 
 CARRIER_FREQ = 880
 SAMPLE_RATE = 44_000
-BITS_PER_SECONDS = 5000 # need to test 50, 500, 5000
+BITS_PER_SECONDS = 500 # need to test 50, 500, 5000
 
-SNR = 1 # dB
+SNR = -2 # dB
 CHANNEL_DELAY = 0
 CHANNEL_FREQ_OFFSET = 0
 CHANNEL_PHASE_JITTER = 0
@@ -33,7 +33,7 @@ CHANNEL_PHASE_JITTER = 0
 # MAIN LOOP 
 # ============================================================================
 
-modulation = nQAMModulation(16) 
+modulation = nQAMModulation(4) 
 baud_rate = round(BITS_PER_SECONDS / modulation.bits_per_symbol)
 
 transmitter = Transmitter(
@@ -69,7 +69,7 @@ streamer = StreamingTransceiver(
     channel_model_fn=channel,
     sample_rate=SAMPLE_RATE,
     snr_db=SNR,
-    bits_per_symbol=modulation.bits_per_symbol
+    bits_per_symbol=modulation.bits_per_symbol, 
 )
 
 source = bit_stream_generator(0.5, chunk_size=100)
@@ -96,17 +96,17 @@ fig, anim = create_animated_transceiver_plot(
 
 plt.show(block=True) 
 
-# print("="*60)
-# print("BER vs SNR Sweep (50, 500, 5000 bps)")
-# print("="*60)
+print("="*60)
+print("BER vs SNR Sweep (50, 500, 5000 bps)")
+print("="*60)
 
-# ber_vs_snr_sweep(
-#     transmitter, receiver, channel_model,
-#     bit_rates=[50, 500, 5000],
-#     snr_range=np.arange(-21, 21, 3),
-#     num_bits=1000,
-#     sample_rate=SAMPLE_RATE, 
-#     bits_per_symbol=modulation.bits_per_symbol
-# )
+ber_vs_snr_sweep(
+    transmitter, receiver, channel_model,
+    bit_rates=[50, 500, 5000],
+    snr_range=np.arange(-21, 21, 3),
+    num_bits=1000,
+    sample_rate=SAMPLE_RATE, 
+    bits_per_symbol=modulation.bits_per_symbol
+)
 
-# plt.show(block=True)
+plt.show(block=True)

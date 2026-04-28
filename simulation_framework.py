@@ -10,50 +10,43 @@ from collections import deque
 # AUDIO AND SYNCHRONIZATION
 # ============================================================================
 
-def record_audio(duration, sample_rate, device):
+def receive_audio(device, sample_rate):
     """
-    Record audio from microphone for specified duration.
+    Record audio from microphone until user stops.
 
     Args:
-        duration: Recording duration in seconds
-        sample_rate: Sample rate in Hz
         device: Audio device index (None = default)
-
     Returns:
+
         audio_data: Recorded audio as numpy array
     """
-    print(f"Recording for {duration} seconds...")
-    audio_data = sd.rec(
-        int(duration * sample_rate),
-        samplerate=sample_rate,
-        channels=1,
-        device=device
-    )
+    print("Recording... Press Ctrl+C to stop.")
+    audio_buffer = deque(maxlen=sample_rate * 10)  # Keep last 10 seconds of audio
+
+    try:
+        while True:
+            chunk = sd.rec(1024, samplerate=sample_rate, channels=1, device=device)
+            sd.wait()
+            audio_buffer.extend(chunk[:, 0])  # Add new samples to buffer
+    except KeyboardInterrupt:
+        print("\nRecording stopped by user.")
+
+    return np.array(audio_buffer)
+
+
+def transmit_audio(waveform, device, sample_rate):
+    """
+    Transmit audio waveform through speakers.
+
+    Args:
+        waveform: Numpy array of audio samples to transmit
+        device: Audio device index (None = default)
+    """
+    print("Transmitting audio...")
+    sd.play(waveform, samplerate=sample_rate, device=device)
     sd.wait()
-    print("Recording complete.")
-    return audio_data[:, 0]
 
-def find_preamble(received_signal, carrier_freq, sample_rate, samples_per_symbol):
-    """
-    Find preamble in received signal to establish synchronization.
 
-    Returns:
-        (preamble_start_idx, phase_offset)
-    """
-    preamble_symbols = qpsk_modulate(string_to_bits(PREAMBLE))
-    preamble_signal = create_passband_signal(
-        preamble_symbols, carrier_freq, sample_rate, samples_per_symbol
-    )
-
-    # Correlate with received signal
-    correlation = signal.correlate(received_signal, preamble_signal, mode='valid')
-    correlation_power = np.abs(correlation)
-
-    # Find peak
-    preamble_idx = np.argmax(correlation_power)
-    phase_offset = np.angle(correlation[preamble_idx])
-
-    return preamble_idx, phase_offset
 
 # ============================================================================
 # CHANNEL SIMULATION
@@ -91,7 +84,7 @@ def channel_model(tx_signal, sample_rate=44100, snr_db=20, delay_samples=0, freq
     noise = np.random.normal(0, np.sqrt(noise_power), len(rx_signal))
     rx_signal = rx_signal + noise
 
-    # Add frequency offset 
+    # Add frequency offset
     # TODO: this is not correct
     if freq_offset != 0:
         t = np.arange(len(rx_signal)) / sample_rate
@@ -138,13 +131,14 @@ def bit_stream_generator(bernoulli_p=0.5, chunk_size=100):
 class StreamingTransceiver:
     """Maintains state for streaming transmission/reception with real-time updates."""
 
-    def __init__(self, transmitter, receiver, channel_model_fn, sample_rate, bits_per_symbol = 2, snr_db=20):
+    def __init__(self, transmitter, receiver, channel_model_fn, sample_rate, bits_per_symbol = 2, snr_db=20, audio_device=None):
         self.transmitter = transmitter
         self.receiver = receiver
         self.channel_model_fn = channel_model_fn
         self.sample_rate = sample_rate
         self.bits_per_symbol = bits_per_symbol
         self.snr_db = snr_db
+        self.audio_device = audio_device
 
         # Streaming accumulators
         self.tx_bits_buffer = ""
@@ -169,6 +163,10 @@ class StreamingTransceiver:
             tx_bits: Bit string to transmit
             max_buffer_size: Max symbols to keep in buffer (for memory efficiency)
         """
+        # Skip if no bits to process
+        if not tx_bits:
+            return
+
         # Transmit
         tx_signal = self.transmitter.transmit_bits(tx_bits)
         tx_symbols = self.transmitter.bits_to_symbols(tx_bits)
@@ -199,7 +197,7 @@ class StreamingTransceiver:
         # Trim buffers to max size (keep newest data)
         if len(self.tx_symbols_buffer) > max_buffer_size:
             trim_idx = len(self.tx_symbols_buffer) - max_buffer_size
-            
+
             self.tx_bits_buffer = self.tx_bits_buffer[trim_idx * self.bits_per_symbol:]
             self.rx_bits_buffer = self.rx_bits_buffer[trim_idx * self.bits_per_symbol:]
             self.tx_symbols_buffer = self.tx_symbols_buffer[trim_idx:]
@@ -241,11 +239,13 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
         max_frames: Maximum frames to animate (None = infinite)
     """
     from matplotlib.animation import FuncAnimation
-    from matplotlib.widgets import Button
 
-    # Create figure and axes
-    fig, axes = plt.subplots(2, 3, figsize=(16, 10))
+    # Create figure and axes (3 rows x 3 columns)
+    fig, axes = plt.subplots(3, 3, figsize=(18, 14))
     fig.suptitle('Real-Time Transceiver (QPSK @ adaptive SNR)', fontsize=14, fontweight='bold')
+
+    # Adjust spacing to prevent title overlap
+    plt.subplots_adjust(top=0.93, hspace=0.4, wspace=0.3)
 
     frame_count = [0]
 
@@ -377,6 +377,46 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
                                transform=axes[1, 2].transAxes, ha='right', va='bottom',
                                bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.8), fontsize=9)
 
+            # Plot 6: TX Frequency Domain (FFT)
+            if len(streamer.tx_signal_buffer) > 0:
+                tx_fft = np.abs(fft(streamer.tx_signal_buffer))
+                tx_freqs = np.fft.fftfreq(len(streamer.tx_signal_buffer), 1/streamer.sample_rate)
+
+                # Only positive frequencies
+                positive_idx = tx_freqs >= 0
+                tx_freqs = tx_freqs[positive_idx]
+                tx_fft = tx_fft[positive_idx]
+
+                # Normalize
+                tx_fft = tx_fft / np.max(tx_fft) if np.max(tx_fft) > 0 else tx_fft
+
+                axes[2, 0].semilogy(tx_freqs, tx_fft + 1e-10, linewidth=0.8, color='blue')
+                axes[2, 0].set_title(f'TX Frequency Response ({len(streamer.tx_signal_buffer)} samples)')
+                axes[2, 0].set_xlabel('Frequency (Hz)')
+                axes[2, 0].set_ylabel('Magnitude (dB)')
+                axes[2, 0].grid(True, alpha=0.3, which='both')
+                axes[2, 0].set_xlim(0, streamer.sample_rate / 2)
+
+            # Plot 7: RX Frequency Domain (FFT)
+            if len(streamer.rx_signal_buffer) > 0:
+                rx_fft = np.abs(fft(streamer.rx_signal_buffer))
+                rx_freqs = np.fft.fftfreq(len(streamer.rx_signal_buffer), 1/streamer.sample_rate)
+
+                # Only positive frequencies
+                positive_idx = rx_freqs >= 0
+                rx_freqs = rx_freqs[positive_idx]
+                rx_fft = rx_fft[positive_idx]
+
+                # Normalize
+                rx_fft = rx_fft / np.max(rx_fft) if np.max(rx_fft) > 0 else rx_fft
+
+                axes[2, 1].semilogy(rx_freqs, rx_fft + 1e-10, linewidth=0.8, color='orange')
+                axes[2, 1].set_title(f'RX Frequency Response ({len(streamer.rx_signal_buffer)} samples)')
+                axes[2, 1].set_xlabel('Frequency (Hz)')
+                axes[2, 1].set_ylabel('Magnitude (dB)')
+                axes[2, 1].grid(True, alpha=0.3, which='both')
+                axes[2, 1].set_xlim(0, streamer.sample_rate / 2)
+
             frame_count[0] += 1
             fig.suptitle(f'Real-Time Transceiver (QPSK @ {streamer.snr_db}dB) - Frame {frame_count[0]}',
                         fontsize=14, fontweight='bold')
@@ -390,24 +430,6 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
     # Create animation (max_frames=None for infinite streaming)
     anim = FuncAnimation(fig, update_frame, interval=update_interval_ms,
                         repeat=False, frames=max_frames, cache_frame_data=False)
-
-    # Create pause/resume buttons
-    ax_pause = plt.axes([0.7, 0.05, 0.08, 0.04])
-    btn_pause = Button(ax_pause, 'Pause', color='orange', hovercolor='darkorange')
-
-    ax_resume = plt.axes([0.79, 0.05, 0.08, 0.04])
-    btn_resume = Button(ax_resume, 'Resume', color='lightgreen', hovercolor='green')
-
-    def on_pause(event):
-        anim_state['paused'] = True
-        print("\n⏸  Animation PAUSED - click Resume to continue")
-
-    def on_resume(event):
-        anim_state['paused'] = False
-        print("▶ Animation RESUMED")
-
-    btn_pause.on_clicked(on_pause)
-    btn_resume.on_clicked(on_resume)
 
     plt.show(block=False)
 
@@ -573,8 +595,8 @@ def ber_vs_snr_sweep(transmitter, receiver, channel_model_fn, bit_rates=[50, 500
         print(f"{'='*60}")
 
         bers = []
-        baud_rate = bit_rate / bits_per_symbol 
-        
+        baud_rate = bit_rate / bits_per_symbol
+
         for snr_db in snr_range:
             # Generate random bits
             tx_bits = ''.join(map(str, bernoulli.rvs(0.5, size=num_bits)))
@@ -633,3 +655,5 @@ def ber_vs_snr_sweep(transmitter, receiver, channel_model_fn, bit_rates=[50, 500
     plt.pause(0.5)
 
     return results
+
+

@@ -282,7 +282,7 @@ class TomasTransmitter:
         else: 
             payload_bits = np.concatenate([self.preamble_bits, np.array(list(payload_bits))])
 
-        symbols = self.bits_tsymbols(payload_bits)
+        symbols = self.bits_to_symbols(payload_bits)
         bb = np.repeat(symbols, self.baud_rate)
 
         t = np.arange(len(bb)) / self.sample_rate
