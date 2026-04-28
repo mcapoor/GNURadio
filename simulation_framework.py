@@ -628,7 +628,6 @@ def ber_vs_snr_sweep(transmitter, receiver, channel_model_fn, bit_rates=[50, 500
         print(f"{'='*60}")
 
         bers = []
-        baud_rate = bit_rate / bits_per_symbol
 
         for snr_db in snr_range:
             # Generate random bits
@@ -639,7 +638,7 @@ def ber_vs_snr_sweep(transmitter, receiver, channel_model_fn, bit_rates=[50, 500
                 modulation=transmitter.modulation,
                 carrier_freq=transmitter.carrier_freq,
                 sample_rate=sample_rate,
-                baud_rate=baud_rate
+                bit_rate=bit_rate
             )
 
             # Transmit
@@ -653,7 +652,7 @@ def ber_vs_snr_sweep(transmitter, receiver, channel_model_fn, bit_rates=[50, 500
                 modulation=receiver.modulation,
                 carrier_freq=receiver.carrier_freq,
                 sample_rate=sample_rate,
-                baud_rate=baud_rate
+                bit_rate=bit_rate
             )
 
             # Receive

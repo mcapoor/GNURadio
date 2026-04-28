@@ -34,9 +34,9 @@ plt.ion()
 # CONFIGURATION
 # ============================================================================
 
-CARRIER_FREQ = 4_000
-SAMPLE_RATE = 44_000
-BITS_PER_SECOND = 20
+CARRIER_FREQ = 10_000
+SAMPLE_RATE = 44_100
+BITS_PER_SECOND = 10_000
 
 CHUNK_SIZE = 50
 
@@ -62,13 +62,12 @@ def run_transmitter_node(audio_device=None):
 
     # Setup modulation
     modulation = nQAMModulation(CONSTELLATION_POINTS)
-    baud_rate = round(BITS_PER_SECOND / modulation.bits_per_symbol)
 
     transmitter = Transmitter(
         modulation=modulation,
         carrier_freq=CARRIER_FREQ,
         sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
+        bit_rate=BITS_PER_SECOND    
     )
 
     bit_list = []
@@ -80,15 +79,15 @@ def run_transmitter_node(audio_device=None):
     fig, axes = plt.subplots(2, 2, figsize=(14, 8))
     fig.suptitle("Transmitter Live View", fontsize=16, fontweight='bold')
 
+    bit_chunk = ''.join(str(x) for x in rng.integers(0, 2, size=CHUNK_SIZE, dtype=int))
+    signal = transmitter.transmit_bits(bit_chunk)
+    symbols = transmitter.bits_to_symbols(bit_chunk)
+    
     def update_plots(frame):
         """Generate one chunk and update plots."""
         nonlocal bit_list, symbol_list, signal_list
 
         # Generate one chunk of bits
-        bit_chunk = ''.join(str(x) for x in rng.integers(0, 2, size=CHUNK_SIZE, dtype=int))
-        signal = transmitter.transmit_bits(bit_chunk)
-        symbols = transmitter.bits_to_symbols(bit_chunk)
-
         bit_list.append(bit_chunk)
         symbol_list.extend(symbols)
         signal_list.extend(signal)
@@ -106,8 +105,6 @@ def run_transmitter_node(audio_device=None):
         # Keep last 500 symbols
         if len(symbol_list) > 500:
             symbol_list[:] = symbol_list[-500:]
-
-        sd.play(signal, samplerate=SAMPLE_RATE, device=audio_device)
 
         # Plot 1: Time-domain signal
         ax = axes[0, 0]
@@ -167,6 +164,8 @@ def run_transmitter_node(audio_device=None):
         return axes.flat
 
     # Create animation
+    sd.play(signal, samplerate=SAMPLE_RATE, device=audio_device)
+
     anim = FuncAnimation(fig, update_plots, interval=200, blit=False)
     plt.tight_layout(pad=2.0, h_pad=2.0, w_pad=2.0)
     plt.show(block=True)
@@ -188,13 +187,12 @@ def run_receiver_node(audio_device=None):
 
     # Setup modulation (same as TX)
     modulation = nQAMModulation(CONSTELLATION_POINTS)
-    baud_rate = round(BITS_PER_SECOND / modulation.bits_per_symbol)
 
     receiver = Receiver(
         modulation=modulation,
         carrier_freq=CARRIER_FREQ,
         sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
+        bit_rate=BITS_PER_SECOND
     )
 
     bit_list = []
@@ -211,16 +209,15 @@ def run_receiver_node(audio_device=None):
     fig, axes = plt.subplots(2, 2, figsize=(14, 8))
     fig.suptitle("Receiver Live View", fontsize=16, fontweight='bold')
 
+    chunk_samples = int(SAMPLE_RATE * RX_CHUNK_DURATION)
+
+    rec = sd.rec(chunk_samples, samplerate=SAMPLE_RATE, channels=1, device=audio_device, dtype='float32')
+    sd.wait()
+    rx_signal = rec[:, 0] if rec.ndim > 1 else rec
+
     def update_plots(frame):
         """Record one chunk and update plots."""
         nonlocal bit_list, symbol_list, signal_list, chunk_count, known_tx_bits, total_bits_compared, total_bit_errors
-
-        chunk_samples = int(SAMPLE_RATE * RX_CHUNK_DURATION)
-
-        rec = sd.rec(chunk_samples, samplerate=SAMPLE_RATE, channels=1, device=audio_device, dtype='float32')
-        sd.wait()
-        rx_signal = rec[:, 0] if rec.ndim > 1 else rec
-
 
         # Demodulate
         result = receiver.receive_bits(rx_signal)

@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import scipy.signal as signal
 import sounddevice as sd
@@ -108,6 +110,62 @@ class nQAMModulation(Modulation):
     def bits_per_symbol(self) -> int:
         return int(np.log2(self.n))
     
+class CDMAModulation(Modulation):
+    def modulate(self, bits: str) -> np.ndarray:
+        return np.array([1 if b == '1' else -1 for b in bits], dtype=int)
+
+    def demodulate(self, symbols: np.ndarray) -> str:
+        return ''.join(['1' if s > 0 else '0' for s in symbols])
+    
+    @property
+    def constellation(self) -> np.ndarray:
+        return np.array([-1 + 0j, 1 + 0j])  # BPSK constellation points for CDMA
+
+    @property
+    def bits_per_symbol(self) -> int:
+        return 1
+    
+    def codeword(self, seed: int) -> np.ndarray: 
+        return np.random.default_rng(seed).integers(0, 2, size=64)
+    
+class FSKModulation(Modulation):
+    """
+    M-ary FSK modulation mapping groups of bits to tone indices.
+    """
+    def __init__(self, M: int = 2):
+        if int(np.log2(M)) != np.log2(M):
+            raise ValueError("M must be a power of two")
+        self.M = M
+        self._bits_per_symbol = int(np.log2(M))
+
+    def modulate(self, bits: str) -> np.ndarray:
+        if len(bits) % self.bits_per_symbol != 0:
+            raise ValueError(f"Bit string length must be multiple of {self.bits_per_symbol}")
+
+        symbols = []
+        for i in range(0, len(bits), self.bits_per_symbol):
+            chunk = bits[i:i+self.bits_per_symbol]
+            
+            
+            symbols.append(np.reshape([-1+0j if b == '0' else 1+0j for b in chunk], (-1,))) 
+
+        return np.array(symbols, dtype=complex)
+
+    def demodulate(self, symbols: np.ndarray) -> str:
+        bits = ""
+        for symbol in symbols:
+            for tone in symbol:
+                bits += '1' if tone > 0 else '0'
+        return bits
+
+    @property
+    def constellation(self) -> np.ndarray:
+        # Represent tone indices as points on the unit circle (informational)
+        return np.exp(1j * 2 * np.pi * np.arange(self.M) / self.M)
+
+    @property
+    def bits_per_symbol(self) -> int:
+        return self._bits_per_symbol
 
 # ============================================================================
 # FILTERS
@@ -150,11 +208,17 @@ def rrc_filter(samples_per_symbol: int, rolloff: float = 0.5, span: int = 4) -> 
 
 class Transmitter:
     """
-    Base transmitter class handling common signal processing.
+    Base transmitter class
     """
 
-    def __init__(self, modulation: Modulation, carrier_freq: float,
-                 sample_rate: float, baud_rate: float, rolloff: float = 0.5):
+    def __init__(self, 
+                modulation: Modulation, 
+                carrier_freq: float,
+                sample_rate: float, 
+                bit_rate: float, 
+                rolloff: float = 0.5, 
+                phi_1: callable = lambda t, f: np.cos(2 * np.pi * f * t),
+                phi_2: callable = lambda t, f: np.sin(2 * np.pi * f * t)):
         """
         Initialize transmitter.
 
@@ -162,17 +226,21 @@ class Transmitter:
             modulation: Modulation instance (e.g., QPSKModulation())
             carrier_freq: Carrier frequency in Hz
             sample_rate: Sample rate in Hz
-            baud_rate: Symbol rate in symbols/second
+            bit_rate: Bit rate in bits/second
             rolloff: RRC rolloff factor
 
         Raises:
             ValueError: If sample_rate/baud_rate is not an integer
         """
         self.modulation = modulation
-        self.carrier_freq = carrier_freq
         self.sample_rate = sample_rate
-        self.baud_rate = baud_rate
+        self.baud_rate = round(bit_rate / modulation.bits_per_symbol)
+
+        self.carrier_freq = carrier_freq
         self.samples_per_symbol = round(self.sample_rate / self.baud_rate)
+        
+        self.phi_1 = lambda t: phi_1(t, carrier_freq)
+        self.phi_2 = lambda t: phi_2(t, carrier_freq)
         
         self.rolloff = rolloff
         self._rrc_coeffs = rrc_filter(self.samples_per_symbol, rolloff=rolloff)
@@ -208,10 +276,8 @@ class Transmitter:
             Real passband signal
         """
         t = np.arange(len(baseband_signal)) / self.sample_rate
-        real_carrier = np.cos(2 * np.pi * self.carrier_freq * t)
-        imag_carrier = np.sin(2 * np.pi * self.carrier_freq * t)
         
-        modulated = baseband_signal.real * real_carrier - baseband_signal.imag * imag_carrier
+        modulated = baseband_signal.real * self.phi_1(t) + baseband_signal.imag * self.phi_2(t)
 
         # Normalize to avoid clipping
         max_val = np.max(np.abs(modulated))
@@ -536,8 +602,14 @@ class Receiver:
     Uses a pluggable Modulation instance for demodulation-specific behavior.
     """
 
-    def __init__(self, modulation: Modulation, carrier_freq: float,
-                 sample_rate: float, baud_rate: float, rolloff: float = 0.5):
+    def __init__(self, 
+                 modulation: Modulation, 
+                 carrier_freq: float,
+                 sample_rate: float, 
+                 bit_rate: float, 
+                 rolloff: float = 0.5,
+                 phi_1: callable = lambda t, f: np.cos(2 * np.pi * f * t),
+                 phi_2: callable = lambda t, f: np.sin(2 * np.pi * f * t)):
         """
         Initialize receiver.
 
@@ -545,17 +617,20 @@ class Receiver:
             modulation: Modulation instance (e.g., QPSKModulation())
             carrier_freq: Carrier frequency in Hz
             sample_rate: Sample rate in Hz
-            baud_rate: Symbol rate in symbols/second
+            bit_rate: Bit rate in bits/second
             rolloff: RRC rolloff factor
 
         Raises:
             ValueError: If sample_rate/baud_rate is not an integer
         """
         self.modulation = modulation
-        self.carrier_freq = carrier_freq
         self.sample_rate = sample_rate
-        self.baud_rate = baud_rate
+        self.baud_rate = round(bit_rate / modulation.bits_per_symbol)
+        self.carrier_freq = carrier_freq
         self.samples_per_symbol = round(self.sample_rate / self.baud_rate)
+        
+        self.phi_1 = lambda t: phi_1(t, carrier_freq)
+        self.phi_2 = lambda t: phi_2(t, carrier_freq)
         
         self.rolloff = rolloff
         self._rrc_coeffs = rrc_filter(self.samples_per_symbol, rolloff=rolloff)
@@ -633,10 +708,8 @@ class Receiver:
         passband_signal = passband_signal - np.mean(passband_signal)
 
         t = np.arange(len(passband_signal)) / self.sample_rate
-        real_carrier = np.cos(-2 * np.pi * self.carrier_freq * t)
-        imag_carrier = np.sin(-2 * np.pi * self.carrier_freq * t)
-
-        baseband = passband_signal * real_carrier + 1j * passband_signal * imag_carrier 
+       
+        baseband = passband_signal * self.phi_1(t) + 1j * passband_signal * self.phi_2(t)
         phase_corrected = baseband * np.exp(-1j * phase_offset) / np.sqrt(2)
 
         return phase_corrected

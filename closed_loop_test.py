@@ -1,7 +1,6 @@
-from modulation_framework import Transmitter, Receiver, nQAMModulation, EmmettReceiver, TomasTransmitter
+from modulation_framework import Transmitter, Receiver, nQAMModulation, CDMAModulation
 from simulation_framework import (
     channel_model,
-    identity_channel_model,
     bit_stream_generator,
     StreamingTransceiver,
     create_animated_transceiver_plot,
@@ -20,9 +19,9 @@ plt.ion()
 # CONFIGURATION 
 # ============================================================================
 
-CARRIER_FREQ = 20_0000
+CARRIER_FREQ = 12_800  # Hz
 SAMPLE_RATE = 44_100
-BITS_PER_SECONDS = 10_000 # need to test 50, 500, 5000
+BITS_PER_SECOND = 5000 # need to test 50, 500, 5000
 
 SNR = 10 # dB
 CHANNEL_DELAY = 0
@@ -33,25 +32,48 @@ CHANNEL_PHASE_JITTER = 0
 # MAIN LOOP 
 # ============================================================================
 
+# QPSK AND QAM
 modulation = nQAMModulation(16) 
-baud_rate = round(BITS_PER_SECONDS / modulation.bits_per_symbol)
-
 transmitter = Transmitter(
     modulation=modulation,
     carrier_freq=CARRIER_FREQ,
     sample_rate=SAMPLE_RATE,
-    baud_rate=baud_rate
+    bit_rate=BITS_PER_SECOND
 )
 
 receiver = Receiver(
     modulation=modulation,
     carrier_freq=CARRIER_FREQ,
     sample_rate=SAMPLE_RATE,
-    baud_rate=baud_rate
+    bit_rate=BITS_PER_SECOND
 )
 
-# transmitter = TomasTransmitter()
-# receiver = EmmettReceiver()
+# CDMA
+# modulation = CDMAModulation() 
+
+# def code(t, f):
+#     codeword = modulation.codeword(1234) 
+#     return codeword[int(t * BITS_PER_SECOND) % len(codeword)]
+
+# transmitter = Transmitter(
+#     modulation=modulation,
+#     carrier_freq=CARRIER_FREQ,
+#     sample_rate=SAMPLE_RATE,
+#     bit_rate=BITS_PER_SECOND, 
+#     phi_1 = lambda t, f: code(t, f),
+#     phi_2 = lambda t, f: 0
+# )
+
+# receiver = Receiver(
+#     modulation=modulation,
+#     carrier_freq=CARRIER_FREQ,
+#     sample_rate=SAMPLE_RATE,
+#     bit_rate=BITS_PER_SECOND,
+#     phi_1 = lambda t, f: code(t, f),
+#     phi_2 = lambda t, f: 0
+    
+# )
+
 
 def channel(signal): 
     return channel_model(
@@ -81,7 +103,7 @@ source = bit_stream_generator(0.5, chunk_size=100)
 print("\n" + "="*60)
 print("Starting Real-Time Streaming Mode")
 print("="*60)
-print(f"Streaming {BITS_PER_SECONDS} bits/second")
+print(f"Streaming {BITS_PER_SECOND} bits/second")
 print(f"Channel SNR: {SNR} dB")
 print(f"Carrier: {CARRIER_FREQ} Hz, Sample Rate: {SAMPLE_RATE} Hz")
 print("Close plots to continue to BER sweep test...")
