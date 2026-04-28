@@ -15,16 +15,17 @@ def encode(str):
 class blk(gr.sync_block):  
     """Take a string message and output it as a stream of bytes."""
 
-    def __init__(self, message="Hello, World!"):  # only default arguments here
-        gr.sync_block.__init__(
-            self,
-            name='String to Bits',  
-            in_sig=[],
-            out_sig=[np.int8]
-        )
-
-        self.message = message
+    def __init__(self, message="Hello, World!"):
+        gr.sync_block.__init__(self, name='String to Bits', in_sig=[], out_sig=[np.int8])
+        self.bits = np.array([int(bit) for bit in encode(message)], dtype=np.int8)
+        self.index = 0
 
     def work(self, input_items, output_items):
-        output_items[0][:] = [int(bit) for bit in encode(self.message)]
-        return len(output_items[0])
+        out = output_items[0]
+        n = min(len(out), len(self.bits) - self.index)
+
+        if n > 0:
+            out[:n] = self.bits[self.index:self.index+n]
+            self.index += n
+
+        return n

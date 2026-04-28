@@ -107,7 +107,7 @@ blocks:
     affinity: ''
     alias: ''
     comment: pipewire for Arch device. Change to "" for default
-    device_name: ''
+    device_name: pipewire
     num_inputs: '1'
     ok_to_block: 'True'
     samp_rate: samp_rate
@@ -115,7 +115,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1408, 456.0]
+    coordinate: [1416, 448.0]
     rotation: 0
     state: enabled
 - name: blocks_add_xx_0
@@ -475,7 +475,7 @@ blocks:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [1312, 536.0]
+    coordinate: [1312, 568.0]
     rotation: 0
     state: enabled
 - name: qtgui_freq_sink_x_0

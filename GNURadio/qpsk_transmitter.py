@@ -318,7 +318,7 @@ class qpsk_transmitter(gr.top_block, Qt.QWidget):
         self.blocks_complex_to_real_0 = blocks.complex_to_real(1)
         self.blocks_complex_to_imag_0 = blocks.complex_to_imag(1)
         self.blocks_add_xx_0 = blocks.add_vff(1)
-        self.audio_sink_0 = audio.sink(samp_rate, '', True)
+        self.audio_sink_0 = audio.sink(samp_rate, 'pipewire', True)
 
 
         ##################################################
