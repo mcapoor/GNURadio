@@ -20,11 +20,11 @@ plt.ion()
 # CONFIGURATION 
 # ============================================================================
 
-CARRIER_FREQ = 880
-SAMPLE_RATE = 44_000
-BITS_PER_SECONDS = 500 # need to test 50, 500, 5000
+CARRIER_FREQ = 20_0000
+SAMPLE_RATE = 44_100
+BITS_PER_SECONDS = 10_000 # need to test 50, 500, 5000
 
-SNR = -2 # dB
+SNR = 10 # dB
 CHANNEL_DELAY = 0
 CHANNEL_FREQ_OFFSET = 0
 CHANNEL_PHASE_JITTER = 0
@@ -33,7 +33,7 @@ CHANNEL_PHASE_JITTER = 0
 # MAIN LOOP 
 # ============================================================================
 
-modulation = nQAMModulation(4) 
+modulation = nQAMModulation(16) 
 baud_rate = round(BITS_PER_SECONDS / modulation.bits_per_symbol)
 
 transmitter = Transmitter(
@@ -96,17 +96,17 @@ fig, anim = create_animated_transceiver_plot(
 
 plt.show(block=True) 
 
-print("="*60)
-print("BER vs SNR Sweep (50, 500, 5000 bps)")
-print("="*60)
+# print("="*60)
+# print("BER vs SNR Sweep (50, 500, 5000 bps)")
+# print("="*60)
 
-ber_vs_snr_sweep(
-    transmitter, receiver, channel_model,
-    bit_rates=[50, 500, 5000],
-    snr_range=np.arange(-21, 21, 3),
-    num_bits=1000,
-    sample_rate=SAMPLE_RATE, 
-    bits_per_symbol=modulation.bits_per_symbol
-)
+# ber_vs_snr_sweep(
+#     transmitter, receiver, channel_model,
+#     bit_rates=[50, 500, 5000],
+#     snr_range=np.arange(-21, 21, 3),
+#     num_bits=1000,
+#     sample_rate=SAMPLE_RATE, 
+#     bits_per_symbol=modulation.bits_per_symbol
+# )
 
-plt.show(block=True)
+# plt.show(block=True)

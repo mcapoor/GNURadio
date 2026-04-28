@@ -240,9 +240,27 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
     """
     from matplotlib.animation import FuncAnimation
 
+    # Get modulation name from transmitter
+    def get_modulation_name():
+        """Determine modulation type name."""
+        try:
+            # Try to get bits_per_symbol from modulation object
+            if hasattr(streamer.transmitter, 'modulation') and hasattr(streamer.transmitter.modulation, 'bits_per_symbol'):
+                bps = streamer.transmitter.modulation.bits_per_symbol
+            else:
+                bps = streamer.bits_per_symbol
+
+            # Map bits per symbol to modulation name
+            mapping = {1: 'BPSK', 2: 'QPSK', 3: '8-PSK', 4: '16-QAM'}
+            return mapping.get(bps, f'{2**bps}-QAM')
+        except:
+            return 'Unknown'
+
+    modulation_name = get_modulation_name()
+
     # Create figure and axes (3 rows x 3 columns)
     fig, axes = plt.subplots(3, 3, figsize=(18, 14))
-    fig.suptitle('Real-Time Transceiver (QPSK @ adaptive SNR)', fontsize=14, fontweight='bold')
+    fig.suptitle(f'Real-Time Transceiver ({modulation_name} @ adaptive SNR)', fontsize=14, fontweight='bold')
 
     # Adjust spacing to prevent title overlap
     plt.subplots_adjust(top=0.93, hspace=0.4, wspace=0.3)
@@ -250,7 +268,19 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
     frame_count = [0]
 
     # Animation state
-    anim_state = {'paused': False}
+    anim_state = {'paused': False, 'zoom_duration': 1.0}  # zoom_duration in seconds
+
+    def on_key_press(event):
+        """Handle keyboard zoom controls."""
+        if event.key == '+' or event.key == '=':
+            # Zoom in (decrease time window)
+            anim_state['zoom_duration'] = max(0.001, anim_state['zoom_duration'] * 0.8)
+        elif event.key == '-' or event.key == '_':
+            # Zoom out (increase time window)
+            anim_state['zoom_duration'] = min(5.0, anim_state['zoom_duration'] * 1.25)
+        elif event.key == '0':
+            # Reset to default
+            anim_state['zoom_duration'] = 1.0
 
     def update_frame(frame):
         """Update plots with new chunk of data."""
@@ -267,8 +297,8 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
             for ax in axes.flat:
                 ax.clear()
 
-            # Plot 1: Time-domain signals (last 1 second)
-            display_duration = 1.0  # Show last 1 second
+            # Plot 1: Time-domain signals (zoom support)
+            display_duration = anim_state['zoom_duration']  # Adjustable zoom
             display_samples = int(display_duration * streamer.sample_rate)
 
             if len(streamer.tx_signal_buffer) > 0 and len(streamer.rx_signal_buffer) > 0:
@@ -286,7 +316,7 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
 
                 axes[0, 0].plot(t_display, tx_display, linewidth=0.5, label='TX', alpha=0.8)
                 axes[0, 0].plot(t_display, rx_display, linewidth=0.5, alpha=0.6, label='RX')
-                axes[0, 0].set_title(f'Time Domain Signals (Last 1s - {len(tx_display)} samples)')
+                axes[0, 0].set_title(f'Time Domain Signals ({display_duration:.3f}s zoom - +/- to adjust, 0 to reset)')
                 axes[0, 0].set_xlabel('Time (s)')
                 axes[0, 0].set_ylabel('Amplitude')
                 axes[0, 0].legend()
@@ -418,7 +448,7 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
                 axes[2, 1].set_xlim(0, streamer.sample_rate / 2)
 
             frame_count[0] += 1
-            fig.suptitle(f'Real-Time Transceiver (QPSK @ {streamer.snr_db}dB) - Frame {frame_count[0]}',
+            fig.suptitle(f'Real-Time Transceiver ({modulation_name} @ {streamer.snr_db}dB) - Frame {frame_count[0]}',
                         fontsize=14, fontweight='bold')
             plt.show()
 
@@ -430,6 +460,9 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
     # Create animation (max_frames=None for infinite streaming)
     anim = FuncAnimation(fig, update_frame, interval=update_interval_ms,
                         repeat=False, frames=max_frames, cache_frame_data=False)
+
+    # Connect keyboard handler for zoom controls
+    fig.canvas.mpl_connect('key_press_event', on_key_press)
 
     plt.show(block=False)
 

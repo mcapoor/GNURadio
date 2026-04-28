@@ -1,5 +1,5 @@
 """
-Dual-Laptop OTA Transceiver Test (No Networking)
+Dual-Laptop OTA Transceiver Test 
 =================================================
 
 Run this script on two laptops to conduct over-the-air testing:
@@ -18,21 +18,15 @@ SINGLE LAPTOP (Loopback test - no audio hardware needed):
   $ python dual_laptop_test.py --mode loopback
 """
 
-from modulation_framework import Transmitter, Receiver, nQAMModulation, TomasTransmitter, EmmettReceiver
-from simulation_framework import (
-    channel_model,
-    identity_channel_model,
-    bit_stream_generator,
-    StreamingTransceiver,
-    create_animated_transceiver_plot,
-)
+from modulation_framework import Transmitter, Receiver, nQAMModulation
 
 import numpy as np
 import sounddevice as sd
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import argparse
 import time
-import threading
+import sys
 
 plt.ion()
 
@@ -40,12 +34,18 @@ plt.ion()
 # CONFIGURATION
 # ============================================================================
 
-CARRIER_FREQ = 880
+CARRIER_FREQ = 4_000
 SAMPLE_RATE = 44_000
-BITS_PER_SECOND = 500
-SNR = 20  # dB
+BITS_PER_SECOND = 20
 
 CHUNK_SIZE = 50
+
+CONSTELLATION_POINTS = 4
+
+RNG_SEED = 12345
+
+# Receiver chunk duration (in seconds) - increase for better demodulation
+RX_CHUNK_DURATION = 0.5  # 0.5 seconds gives ~5 symbols at 10 baud rate
 
 # ============================================================================
 # TRANSMITTER NODE
@@ -61,10 +61,9 @@ def run_transmitter_node(audio_device=None):
     print("="*60 + "\n")
 
     # Setup modulation
-    modulation = nQAMModulation(4)  # QPSK
+    modulation = nQAMModulation(CONSTELLATION_POINTS)
     baud_rate = round(BITS_PER_SECOND / modulation.bits_per_symbol)
 
-    # Create transmitter
     transmitter = Transmitter(
         modulation=modulation,
         carrier_freq=CARRIER_FREQ,
@@ -72,85 +71,104 @@ def run_transmitter_node(audio_device=None):
         baud_rate=baud_rate
     )
 
-    # Dummy receiver (won't use)
-    receiver = Receiver(
-        modulation=modulation,
-        carrier_freq=CARRIER_FREQ,
-        sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
-    )
+    bit_list = []
+    symbol_list = []
+    signal_list = []
 
-    def tx_channel(signal_in):
-        """TX side channel - identity."""
-        return signal_in
+    rng = np.random.default_rng(RNG_SEED)
 
-    # Create streaming transceiver (TX only)
-    streamer = StreamingTransceiver(
-        transmitter=transmitter,
-        receiver=receiver,
-        channel_model_fn=tx_channel,
-        sample_rate=SAMPLE_RATE,
-        snr_db=SNR,
-        bits_per_symbol=modulation.bits_per_symbol,
-        audio_device=audio_device
-    )
+    fig, axes = plt.subplots(2, 2, figsize=(14, 8))
+    fig.suptitle("Transmitter Live View", fontsize=16, fontweight='bold')
 
-    # Bit stream generator
-    source = bit_stream_generator(0.5, chunk_size=CHUNK_SIZE)
+    def update_plots(frame):
+        """Generate one chunk and update plots."""
+        nonlocal bit_list, symbol_list, signal_list
 
-    # TX loop: generate bits, transmit via speaker
-    def tx_worker():
-        print("Starting transmission loop...\n")
-        try:
-            chunk_num = 0
-            while True:
-                bit_chunk = next(source)
+        # Generate one chunk of bits
+        bit_chunk = ''.join(str(x) for x in rng.integers(0, 2, size=CHUNK_SIZE, dtype=int))
+        signal = transmitter.transmit_bits(bit_chunk)
+        symbols = transmitter.bits_to_symbols(bit_chunk)
 
-                # Process through transmitter
-                tx_signal = transmitter.transmit_bits(bit_chunk)
-                tx_symbols = transmitter.bits_to_symbols(bit_chunk)
+        bit_list.append(bit_chunk)
+        symbol_list.extend(symbols)
+        signal_list.extend(signal)
 
-                # Play audio on speaker
-                sd.play(tx_signal, samplerate=SAMPLE_RATE, device=audio_device)
+        # Keep only last ~2 seconds of signal 
+        max_signal_samples = SAMPLE_RATE * 2
+        if len(signal_list) > max_signal_samples:
+            trim_amount = len(signal_list) - max_signal_samples
+            signal_list[:] = signal_list[trim_amount:]
 
-                # Update local buffers
-                streamer.tx_bits_buffer += bit_chunk
-                streamer.tx_symbols_buffer = np.append(streamer.tx_symbols_buffer, tx_symbols)
-                streamer.tx_signal_buffer = np.append(streamer.tx_signal_buffer, tx_signal)
+        # Keep last 200 bits for display
+        if len(''.join(bit_list)) > 200:
+            bit_list[:] = (bit_list[:-1] if len(bit_list[-1]) > 1 else bit_list[:-2])
 
-                # Trim buffers to prevent memory bloat
-                if len(streamer.tx_symbols_buffer) > 5000:
-                    trim_idx = len(streamer.tx_symbols_buffer) - 5000
-                    streamer.tx_bits_buffer = streamer.tx_bits_buffer[trim_idx * 2:]
-                    streamer.tx_symbols_buffer = streamer.tx_symbols_buffer[trim_idx:]
-                    streamer.tx_signal_buffer = streamer.tx_signal_buffer[trim_idx * SAMPLE_RATE // baud_rate:]
+        # Keep last 500 symbols
+        if len(symbol_list) > 500:
+            symbol_list[:] = symbol_list[-500:]
 
-                chunk_num += 1
-                if chunk_num % 10 == 0:
-                    print(f"TX Chunk {chunk_num}: sent {len(bit_chunk)} bits")
+        sd.play(signal, samplerate=SAMPLE_RATE, device=audio_device)
 
-                time.sleep(0.5)
+        # Plot 1: Time-domain signal
+        ax = axes[0, 0]
+        ax.clear()
+        display_samples = min(SAMPLE_RATE, len(signal_list))
+        if display_samples > 0:
+            t = np.arange(display_samples) / SAMPLE_RATE
+            ax.plot(t, signal_list[-display_samples:], linewidth=0.5, color='blue')
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Amplitude")
+        ax.set_title("Time Domain (TX Signal)")
+        ax.grid(True, alpha=0.3)
 
-        except KeyboardInterrupt:
-            print("\nTransmitter stopped.")
+        # Plot 2: Frequency domain (FFT with windowing)
+        ax = axes[0, 1]
+        ax.clear()
+        if len(signal_list) >= SAMPLE_RATE:
+            windowed_signal = signal_list[-SAMPLE_RATE:] * np.hanning(SAMPLE_RATE)
+            fft = np.abs(np.fft.fft(windowed_signal))
+            freqs = np.fft.fftfreq(len(fft), 1 / SAMPLE_RATE)
+            ax.plot(freqs[:len(freqs)//2], fft[:len(fft)//2], linewidth=0.5, color='blue')
+            ax.set_xlabel("Frequency (Hz)")
+            ax.set_ylabel("Magnitude")
+            ax.set_title("Frequency Domain (FFT)")
+            ax.grid(True, alpha=0.3)
 
-    # Start TX worker thread
-    tx_thread = threading.Thread(target=tx_worker, daemon=True)
-    tx_thread.start()
+        # Plot 3: Last 20 bits
+        ax = axes[1, 0]
+        ax.clear()
+        all_bits = ''.join(bit_list)
+        last_bits = all_bits[-20:] if len(all_bits) > 0 else ""
+        if last_bits:
+            bits_array = [int(b) for b in last_bits]
+            colors = ['red' if b == 0 else 'blue' for b in bits_array]
+            ax.bar(range(len(bits_array)), bits_array, color=colors)
+            ax.set_ylim(-0.1, 1.1)
+            ax.set_xlabel("Bit Index")
+            ax.set_ylabel("Bit Value")
+            ax.set_title(f"Source Bits (Last 20): {last_bits}")
+            ax.set_xticks(range(len(bits_array)))
 
-    # No-op generator (real bits come from tx worker thread)
-    def noop_gen():
-        while True:
-            yield ""
+        # Plot 4: Constellation
+        ax = axes[1, 1]
+        ax.clear()
+        if len(symbol_list) > 0:
+            ax.scatter(np.real(symbol_list), np.imag(symbol_list), alpha=0.6, s=50, color='blue')
+            ax.axhline(y=0, color='k', linewidth=0.5, alpha=0.3)
+            ax.axvline(x=0, color='k', linewidth=0.5, alpha=0.3)
+            ax.set_xlabel("I (In-phase)")
+            ax.set_ylabel("Q (Quadrature)")
+            ax.set_title(f"Constellation ({len(symbol_list)} symbols)")
+            ax.grid(True, alpha=0.3)
+            max_lim = 1.5
+            ax.set_xlim(-max_lim, max_lim)
+            ax.set_ylim(-max_lim, max_lim)
 
-    # Create visualization
-    fig, anim = create_animated_transceiver_plot(
-        streamer,
-        noop_gen(),
-        update_interval_ms=500,
-        max_frames=None
-    )
+        return axes.flat
 
+    # Create animation
+    anim = FuncAnimation(fig, update_plots, interval=200, blit=False)
+    plt.tight_layout(pad=2.0, h_pad=2.0, w_pad=2.0)
     plt.show(block=True)
 
 
@@ -165,13 +183,13 @@ def run_receiver_node(audio_device=None):
     print("="*60)
     print(f"Listening on mic at {CARRIER_FREQ} Hz carrier")
     print(f"Sample rate: {SAMPLE_RATE} Hz")
+    print(f"RNG Seed (for known TX pattern): {RNG_SEED}")
     print("="*60 + "\n")
 
     # Setup modulation (same as TX)
-    modulation = nQAMModulation(4)
+    modulation = nQAMModulation(CONSTELLATION_POINTS)
     baud_rate = round(BITS_PER_SECOND / modulation.bits_per_symbol)
 
-    # Create receiver
     receiver = Receiver(
         modulation=modulation,
         carrier_freq=CARRIER_FREQ,
@@ -179,241 +197,180 @@ def run_receiver_node(audio_device=None):
         baud_rate=baud_rate
     )
 
-    # Dummy transmitter (won't use)
-    transmitter = Transmitter(
-        modulation=modulation,
-        carrier_freq=CARRIER_FREQ,
-        sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
-    )
+    bit_list = []
+    symbol_list = []
+    signal_list = []
+    chunk_count = 0
 
-    def rx_channel(signal_in):
-        """RX side - identity channel."""
-        return signal_in
+    rng = np.random.default_rng(RNG_SEED)
+    known_tx_bits = ""
 
-    streamer = StreamingTransceiver(
-        transmitter=transmitter,
-        receiver=receiver,
-        channel_model_fn=rx_channel,
-        sample_rate=SAMPLE_RATE,
-        snr_db=SNR,
-        bits_per_symbol=modulation.bits_per_symbol,
-        audio_device=audio_device
-    )
+    total_bits_compared = 0
+    total_bit_errors = 0
 
-    # Recording thread
-    def recording_worker():
-        """Continuously record from mic and demodulate."""
-        chunk_duration = 0.5  # seconds
-        chunk_samples = int(SAMPLE_RATE * chunk_duration)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 8))
+    fig.suptitle("Receiver Live View", fontsize=16, fontweight='bold')
 
-        print("Starting mic recording...\n")
-        try:
-            chunk_num = 0
-            while True:
-                # Record chunk from mic
-                rec = sd.rec(chunk_samples, samplerate=SAMPLE_RATE, channels=1, device=audio_device,
-                            dtype='float32')
-                sd.wait()
-                rx_signal = rec[:, 0]
+    def update_plots(frame):
+        """Record one chunk and update plots."""
+        nonlocal bit_list, symbol_list, signal_list, chunk_count, known_tx_bits, total_bits_compared, total_bit_errors
 
-                # Demodulate
-                result = receiver.receive_bits(rx_signal)
-                if result:
-                    rx_bits, rx_symbols = result
-                    # Update streamer
-                    streamer.rx_bits_buffer += rx_bits
-                    streamer.rx_symbols_buffer = np.append(streamer.rx_symbols_buffer, rx_symbols)
+        chunk_samples = int(SAMPLE_RATE * RX_CHUNK_DURATION)
 
-                streamer.rx_signal_buffer = np.append(streamer.rx_signal_buffer, rx_signal)
+        rec = sd.rec(chunk_samples, samplerate=SAMPLE_RATE, channels=1, device=audio_device, dtype='float32')
+        sd.wait()
+        rx_signal = rec[:, 0] if rec.ndim > 1 else rec
 
-                # Trim buffers
-                if len(streamer.rx_symbols_buffer) > 5000:
-                    trim_idx = len(streamer.rx_symbols_buffer) - 5000
-                    streamer.rx_bits_buffer = streamer.rx_bits_buffer[trim_idx * 2:]
-                    streamer.rx_symbols_buffer = streamer.rx_symbols_buffer[trim_idx:]
-                    streamer.rx_signal_buffer = streamer.rx_signal_buffer[trim_idx * SAMPLE_RATE // baud_rate:]
 
-                chunk_num += 1
-                if chunk_num % 10 == 0:
-                    print(f"RX Chunk {chunk_num}: received signal")
+        # Demodulate
+        result = receiver.receive_bits(rx_signal)
+        if result:
+            rx_bits, rx_symbols = result
+            bit_list.append(rx_bits)
+            symbol_list.extend(rx_symbols)
 
-        except KeyboardInterrupt:
-            print("\nRecording stopped.")
+        # Generate more known TX bits if needed (to match what was decoded)
+        # This simulates the TX sequence using the same RNG seed
+        all_decoded_bits = ''.join(bit_list)
+        while len(known_tx_bits) < len(all_decoded_bits) + CHUNK_SIZE:
+            tx_chunk = ''.join(str(x) for x in rng.integers(0, 2, size=CHUNK_SIZE, dtype=int))
+            known_tx_bits += tx_chunk
 
-    rec_thread = threading.Thread(target=recording_worker, daemon=True)
-    rec_thread.start()
+        # Append raw signal
+        signal_list.extend(rx_signal)
 
-    # No-op generator (real bits come from mic recording thread)
-    def noop_gen():
-        while True:
-            yield ""
+        # Keep only last ~2 seconds of signal
+        max_signal_samples = SAMPLE_RATE * 2
+        if len(signal_list) > max_signal_samples:
+            trim_amount = len(signal_list) - max_signal_samples
+            signal_list[:] = signal_list[trim_amount:]
 
-    # Create visualization
-    fig, anim = create_animated_transceiver_plot(
-        streamer,
-        noop_gen(),
-        update_interval_ms=500,
-        max_frames=None
-    )
+        # Keep last 500 symbols
+        if len(symbol_list) > 500:
+            symbol_list[:] = symbol_list[-500:]
 
+        chunk_count += 1
+
+        # Plot 1: Time-domain signal
+        ax = axes[0, 0]
+        ax.clear()
+        display_samples = min(SAMPLE_RATE, len(signal_list))
+        if display_samples > 0:
+            t = np.arange(display_samples) / SAMPLE_RATE
+            ax.plot(t, signal_list[-display_samples:], linewidth=0.5, color='green')
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Amplitude")
+        ax.set_title("Time Domain (RX Signal)")
+        ax.grid(True, alpha=0.3)
+
+        # Plot 2: Frequency domain (FFT with windowing)
+        ax = axes[0, 1]
+        ax.clear()
+        if len(signal_list) >= SAMPLE_RATE:
+            windowed_signal = signal_list[-SAMPLE_RATE:] * np.hanning(SAMPLE_RATE)
+            fft = np.abs(np.fft.fft(windowed_signal))
+            freqs = np.fft.fftfreq(len(fft), 1 / SAMPLE_RATE)
+            ax.plot(freqs[:len(freqs)//2], fft[:len(fft)//2], linewidth=0.5, color='green')
+            ax.set_xlabel("Frequency (Hz)")
+            ax.set_ylabel("Magnitude")
+            ax.set_title("Frequency Domain (FFT)")
+            ax.grid(True, alpha=0.3)
+
+        # Plot 3: Bit comparison (Known TX vs Decoded RX)
+        ax = axes[1, 0]
+        ax.clear()
+
+        all_decoded_bits = ''.join(bit_list)
+        bits_to_show = min(20, len(all_decoded_bits), len(known_tx_bits))
+
+        if bits_to_show > 0:
+            tx_bits_short = np.array([int(b) for b in known_tx_bits[-bits_to_show:]])
+            rx_bits_short = np.array([int(b) for b in all_decoded_bits[-bits_to_show:]])
+
+            # Calculate errors for this window
+            errors = (tx_bits_short != rx_bits_short)
+            error_count = np.sum(errors)
+
+            # Update statistics
+            bits_compared = min(len(all_decoded_bits), len(known_tx_bits))
+            if bits_compared > 0:
+                total_errors = np.sum(np.array([int(b) for b in known_tx_bits[:bits_compared]]) !=
+                                     np.array([int(b) for b in all_decoded_bits[:bits_compared]]))
+                current_ber = total_errors / bits_compared
+            else:
+                current_ber = 0.0
+
+            # Plot TX and RX bits
+            ax.plot(range(bits_to_show), tx_bits_short, 'b-o', markersize=5, alpha=0.7, label='TX (known)', linewidth=1.5)
+            ax.plot(range(bits_to_show), rx_bits_short, 'g-s', markersize=5, alpha=0.7, label='RX (decoded)', linewidth=1.5)
+
+            # Highlight errors
+            error_indices = np.where(errors)[0]
+            if len(error_indices) > 0:
+                ax.scatter(error_indices, tx_bits_short[error_indices],
+                          color='red', s=150, marker='x', linewidths=3, label='Errors', zorder=5)
+
+            ax.set_title(f'Bit Comparison (Last {bits_to_show} bits) - BER: {current_ber:.4f}')
+            ax.set_xlabel('Bit Index')
+            ax.set_ylabel('Bit Value')
+            ax.set_ylim(-0.2, 1.2)
+            ax.set_yticks([0, 1])
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.legend(loc='upper right', fontsize=9)
+
+            # Add error count annotation
+            ax.text(0.02, 0.98, f'Errors (last 20): {error_count}/{bits_to_show}\nTotal: {total_errors}/{bits_compared}',
+                   transform=ax.transAxes, ha='left', va='top',
+                   bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9), fontsize=9)
+        else:
+            ax.text(0.5, 0.5, "Waiting for bits...", ha='center', va='center', fontsize=12)
+            ax.set_title("Bit Comparison (Awaiting Signal)")
+
+
+        # Plot 4: Constellation
+        ax = axes[1, 1]
+        ax.clear()
+        if len(symbol_list) > 0:
+            ax.scatter(np.real(symbol_list), np.imag(symbol_list), alpha=0.6, s=50, color='green')
+            ax.axhline(y=0, color='k', linewidth=0.5, alpha=0.3)
+            ax.axvline(x=0, color='k', linewidth=0.5, alpha=0.3)
+            ax.set_xlabel("I (In-phase)")
+            ax.set_ylabel("Q (Quadrature)")
+            ax.set_title(f"Constellation ({len(symbol_list)} symbols)")
+            ax.grid(True, alpha=0.3)
+            max_lim = 1.5
+            ax.set_xlim(-max_lim, max_lim)
+            ax.set_ylim(-max_lim, max_lim)
+
+        return axes.flat
+
+    # Create animation
+    anim = FuncAnimation(fig, update_plots, interval=200, blit=False)
+    plt.tight_layout(pad=2.0, h_pad=2.0, w_pad=2.0)
     plt.show(block=True)
 
 
 # ============================================================================
-# LOOPBACK TEST (SINGLE LAPTOP)
-# ============================================================================
-
-def run_loopback_test():
-    """
-    Test TX and RX on the same laptop with audio loopback.
-    TX generates audio that is immediately fed to RX (in-memory).
-    Both are visualized together for full system validation.
-    """
-    print("\n" + "="*60)
-    print("LOOPBACK TEST (Single Laptop)")
-    print("="*60)
-    print(f"Testing TX and RX with internal loopback")
-    print(f"Bit rate: {BITS_PER_SECOND} bps")
-    print("No audio hardware needed - perfect channel")
-    print("="*60 + "\n")
-
-    # Setup modulation
-    modulation = nQAMModulation(4)  # QPSK
-    baud_rate = round(BITS_PER_SECOND / modulation.bits_per_symbol)
-
-    # Create transmitter
-    transmitter = Transmitter(
-        modulation=modulation,
-        carrier_freq=CARRIER_FREQ,
-        sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
-    )
-
-    # Create receiver (same config)
-    receiver = Receiver(
-        modulation=modulation,
-        carrier_freq=CARRIER_FREQ,
-        sample_rate=SAMPLE_RATE,
-        baud_rate=baud_rate
-    )
-
-    def loopback_channel(signal_in):
-        """Loopback channel - identity (perfect channel)."""
-        return signal_in
-
-    # Create single streamer for loopback
-    streamer = StreamingTransceiver(
-        transmitter=transmitter,
-        receiver=receiver,
-        channel_model_fn=loopback_channel,
-        sample_rate=SAMPLE_RATE,
-        snr_db=SNR,
-        bits_per_symbol=modulation.bits_per_symbol
-    )
-
-    # Bit stream generator
-    bit_gen = bit_stream_generator(0.5, chunk_size=CHUNK_SIZE)
-
-    # Loopback worker thread
-    def loopback_worker():
-        """Generate TX audio and immediately process as RX."""
-        print("Starting loopback loop...\n")
-        try:
-            chunk_num = 0
-            while True:
-                bit_chunk = next(bit_gen)
-
-                # TX: Generate audio
-                tx_signal = transmitter.transmit_bits(bit_chunk)
-                tx_symbols = transmitter.bits_to_symbols(bit_chunk)
-
-                # RX: Process the same audio immediately
-                result = receiver.receive_bits(tx_signal)
-                if result:
-                    rx_bits, rx_symbols = result
-                else:
-                    rx_bits = ""
-                    rx_symbols = np.array([], dtype=complex)
-
-                # Update TX and RX buffers
-                streamer.tx_bits_buffer += bit_chunk
-                streamer.tx_symbols_buffer = np.append(streamer.tx_symbols_buffer, tx_symbols)
-                streamer.tx_signal_buffer = np.append(streamer.tx_signal_buffer, tx_signal)
-
-                streamer.rx_bits_buffer += rx_bits
-                streamer.rx_symbols_buffer = np.append(streamer.rx_symbols_buffer, rx_symbols)
-                streamer.rx_signal_buffer = np.append(streamer.rx_signal_buffer, tx_signal)
-
-                # Track phase
-                phase_estimate = receiver.get_phase_estimate()
-                streamer.phase_history.append(np.degrees(phase_estimate))
-
-                # Update BER
-                bits_to_compare = min(len(streamer.tx_bits_buffer), len(streamer.rx_bits_buffer))
-                if bits_to_compare > 0:
-                    tx_arr = np.array(list(streamer.tx_bits_buffer[:bits_to_compare]), dtype=int)
-                    rx_arr = np.array(list(streamer.rx_bits_buffer[:bits_to_compare]), dtype=int)
-                    errors = np.sum(tx_arr != rx_arr)
-                    ber = errors / bits_to_compare
-                    streamer.running_ber_history.append(ber)
-
-                # Trim buffers to prevent memory bloat
-                if len(streamer.tx_symbols_buffer) > 5000:
-                    trim_idx = len(streamer.tx_symbols_buffer) - 5000
-                    streamer.tx_bits_buffer = streamer.tx_bits_buffer[trim_idx * 2:]
-                    streamer.rx_bits_buffer = streamer.rx_bits_buffer[trim_idx * 2:]
-                    streamer.tx_symbols_buffer = streamer.tx_symbols_buffer[trim_idx:]
-                    streamer.rx_symbols_buffer = streamer.rx_symbols_buffer[trim_idx:]
-                    streamer.tx_signal_buffer = streamer.tx_signal_buffer[trim_idx * SAMPLE_RATE // baud_rate:]
-                    streamer.rx_signal_buffer = streamer.rx_signal_buffer[trim_idx * SAMPLE_RATE // baud_rate:]
-
-                chunk_num += 1
-                if chunk_num % 10 == 0:
-                    ber_str = f"{streamer.running_ber_history[-1]:.4f}" if streamer.running_ber_history else "N/A"
-                    print(f"Loopback Chunk {chunk_num}: TX {len(bit_chunk)} bits, RX {len(rx_bits)} bits, BER={ber_str}")
-
-                time.sleep(0.1)  # Loopback faster than real-time
-
-        except KeyboardInterrupt:
-            print("\nLoopback test stopped.")
-
-    # Start loopback worker thread
-    loopback_thread = threading.Thread(target=loopback_worker, daemon=True)
-    loopback_thread.start()
-
-    # No-op generator (real bits come from loopback worker thread)
-    def noop_gen():
-        while True:
-            yield ""
-
-    # Create visualization showing both TX and RX
-    fig, anim = create_animated_transceiver_plot(
-        streamer,
-        noop_gen(),
-        update_interval_ms=500,
-        max_frames=None
-    )
-
-    plt.show(block=True)
-
-
-# ============================================================================
-# MAIN
+# MAIN LOOP
 # ============================================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dual-Laptop OTA Transceiver")
-    parser.add_argument("--mode", required=True, choices=["tx", "rx", "loopback"],
-                       help="Run as transmitter, receiver, or single-laptop loopback test")
+    parser.add_argument("--mode", required=True, choices=["tx", "rx", "list-devices"],
+                       help="Run as transmitter, receiver, or list audio devices")
     parser.add_argument("--device", type=int, default=None,
                        help="Audio device index (tx/rx modes only)")
 
     args = parser.parse_args()
 
-    if args.mode == "tx":
+    if args.mode == "list-devices":
+        print("\nAvailable audio devices:")
+        devices = sd.query_devices()
+        for i, device in enumerate(devices):
+            print(f"  {i}: {device['name']}")
+            print(f"     Channels: in={device['max_input_channels']}, out={device['max_output_channels']}")
+        sys.exit(0)
+    elif args.mode == "tx":
         run_transmitter_node(audio_device=args.device)
     elif args.mode == "rx":
         run_receiver_node(audio_device=args.device)
-    else:
-        run_loopback_test()
