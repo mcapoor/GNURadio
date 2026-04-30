@@ -1,7 +1,16 @@
+''' 
+General simulation library for testing modulation schemes, channel models, and real-time
+
+Functions here are called by the closed_loop_test.py and dual_laptop_test.py scripts, which implement specific test scenarios.
+
+The most important functions here are:
+- StreamingTransceiver class, which wraps around the Transmitter and Receiver classes to buffer data I/O and visualization
+- create_animated_transceiver_plot function, running the live TX/RX visualization with pause and zoom support
+
+''' 
 import numpy as np
 import matplotlib.pyplot as plt
 import sounddevice as sd
-import scipy.signal as signal
 from scipy.fft import fft
 from collections import deque
 

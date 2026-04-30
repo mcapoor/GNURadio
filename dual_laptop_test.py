@@ -12,20 +12,21 @@ LAPTOP B (Receiver):
 
 Each laptop displays its own local graphs independently.
 
-Or test on a single laptop with loopback:
+TODO: 
+- the receiver bit display is buggy and will sometimes freeze "Waiting for bits..." 
+- the refresh rate is slow and jumpy and the threading is a mess. Total refactor probably needed
+- The Transmitter and UnifiedReceiver classes in modulation_framework_v2 implement better timing sync but aren't fully integrated/debugged yet. The classes in modulation_framework are out of date but currently work (in simulation only). Eventually, we should deprecate modulation_framework and switch everything over to modulation_framework_v2, but for now you can mix and match as needed. The modulation classes provided by modulation_framework_v2 are all interchangeable between the two frameworks since they have the same interface.
 
 """
 
-from modulation_framework import Transmitter, Receiver, nQAMModulation
+from modulation_framework import Transmitter, Receiver
 
-from main import ( 
-    Transmitter, UnifiedReceiver,
+from modulation_framework_v2 import ( 
+    #Transmitter, UnifiedReceiver,
     nQAMModulation, 
-    BFSKModulation, 
+    PSKModulation, 
     CDMAModulation, CDMAReceiver
 ) 
-
-import modulation_framework as milan
 
 import numpy as np
 import sounddevice as sd
@@ -54,7 +55,7 @@ PLOT_UPDATE_INTERVAL_MS = 100
 RNG_SEED = 12345
 
 # modulation = nQAMModulation(16)  
-modulation = BFSKModulation(f0_offset=-10000, f1_offset=10000, fs=SAMPLE_RATE, spb=int(SAMPLE_RATE/BITS_PER_SECOND)) 
+modulation = PSKModulation(f0_offset=-10000, f1_offset=10000, fs=SAMPLE_RATE, spb=int(SAMPLE_RATE/BITS_PER_SECOND)) 
 
 # ============================================================================
 # TRANSMITTER NODE
