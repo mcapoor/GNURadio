@@ -1,4 +1,14 @@
-from modulation_framework import Transmitter, Receiver, nQAMModulation, CDMAModulation
+from main import ( 
+    Transmitter, UnifiedReceiver,
+    nQAMModulation, 
+    BFSKModulation, 
+    SoftCPFSKModulation, 
+    GrayCodedQPSK, 
+    CDMAModulation, CDMAReceiver
+) 
+
+import modulation_framework as milan
+
 from simulation_framework import (
     channel_model,
     bit_stream_generator,
@@ -21,59 +31,39 @@ plt.ion()
 
 CARRIER_FREQ = 12_800  # Hz
 SAMPLE_RATE = 44_100
-BITS_PER_SECOND = 5000 # need to test 50, 500, 5000
+BITS_PER_SECOND = 12_000 # need to test 50, 500, 5000
 
 SNR = 10 # dB
 CHANNEL_DELAY = 0
 CHANNEL_FREQ_OFFSET = 0
 CHANNEL_PHASE_JITTER = 0
 
+rng = np.random.default_rng(12345)
+PREAMBLE_BITS = rng.integers(0, 2, size=128, dtype=int)
+
+
 # ============================================================================
 # MAIN LOOP 
 # ============================================================================
 
-# QPSK AND QAM
-modulation = nQAMModulation(16) 
-transmitter = Transmitter(
+modulation = nQAMModulation(16)  
+# modulation = BFSKModulation(f0_offset=-10000, f1_offset=10000, fs=SAMPLE_RATE, spb=int(SAMPLE_RATE/BITS_PER_SECOND)) 
+# modulation = GrayCodedQPSK()
+# # modulation = CDMAModulation(n_users=4, spreading_factor=64)
+# 
+transmitter = milan.Transmitter(
     modulation=modulation,
     carrier_freq=CARRIER_FREQ,
     sample_rate=SAMPLE_RATE,
     bit_rate=BITS_PER_SECOND
 )
 
-receiver = Receiver(
+receiver = milan.Receiver(
     modulation=modulation,
     carrier_freq=CARRIER_FREQ,
     sample_rate=SAMPLE_RATE,
     bit_rate=BITS_PER_SECOND
 )
-
-# CDMA
-# modulation = CDMAModulation() 
-
-# def code(t, f):
-#     codeword = modulation.codeword(1234) 
-#     return codeword[int(t * BITS_PER_SECOND) % len(codeword)]
-
-# transmitter = Transmitter(
-#     modulation=modulation,
-#     carrier_freq=CARRIER_FREQ,
-#     sample_rate=SAMPLE_RATE,
-#     bit_rate=BITS_PER_SECOND, 
-#     phi_1 = lambda t, f: code(t, f),
-#     phi_2 = lambda t, f: 0
-# )
-
-# receiver = Receiver(
-#     modulation=modulation,
-#     carrier_freq=CARRIER_FREQ,
-#     sample_rate=SAMPLE_RATE,
-#     bit_rate=BITS_PER_SECOND,
-#     phi_1 = lambda t, f: code(t, f),
-#     phi_2 = lambda t, f: 0
-    
-# )
-
 
 def channel(signal): 
     return channel_model(

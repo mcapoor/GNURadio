@@ -110,62 +110,6 @@ class nQAMModulation(Modulation):
     def bits_per_symbol(self) -> int:
         return int(np.log2(self.n))
     
-class CDMAModulation(Modulation):
-    def modulate(self, bits: str) -> np.ndarray:
-        return np.array([1 if b == '1' else -1 for b in bits], dtype=int)
-
-    def demodulate(self, symbols: np.ndarray) -> str:
-        return ''.join(['1' if s > 0 else '0' for s in symbols])
-    
-    @property
-    def constellation(self) -> np.ndarray:
-        return np.array([-1 + 0j, 1 + 0j])  # BPSK constellation points for CDMA
-
-    @property
-    def bits_per_symbol(self) -> int:
-        return 1
-    
-    def codeword(self, seed: int) -> np.ndarray: 
-        return np.random.default_rng(seed).integers(0, 2, size=64)
-    
-class FSKModulation(Modulation):
-    """
-    M-ary FSK modulation mapping groups of bits to tone indices.
-    """
-    def __init__(self, M: int = 2):
-        if int(np.log2(M)) != np.log2(M):
-            raise ValueError("M must be a power of two")
-        self.M = M
-        self._bits_per_symbol = int(np.log2(M))
-
-    def modulate(self, bits: str) -> np.ndarray:
-        if len(bits) % self.bits_per_symbol != 0:
-            raise ValueError(f"Bit string length must be multiple of {self.bits_per_symbol}")
-
-        symbols = []
-        for i in range(0, len(bits), self.bits_per_symbol):
-            chunk = bits[i:i+self.bits_per_symbol]
-            
-            
-            symbols.append(np.reshape([-1+0j if b == '0' else 1+0j for b in chunk], (-1,))) 
-
-        return np.array(symbols, dtype=complex)
-
-    def demodulate(self, symbols: np.ndarray) -> str:
-        bits = ""
-        for symbol in symbols:
-            for tone in symbol:
-                bits += '1' if tone > 0 else '0'
-        return bits
-
-    @property
-    def constellation(self) -> np.ndarray:
-        # Represent tone indices as points on the unit circle (informational)
-        return np.exp(1j * 2 * np.pi * np.arange(self.M) / self.M)
-
-    @property
-    def bits_per_symbol(self) -> int:
-        return self._bits_per_symbol
 
 # ============================================================================
 # FILTERS

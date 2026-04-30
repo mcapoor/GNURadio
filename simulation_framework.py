@@ -377,8 +377,7 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
                 axes[1, 0].set_ylabel('Q')
                 axes[1, 0].grid(True, alpha=0.3)
                 axes[1, 0].axis('equal')
-                axes[1, 0].set_xlim(-2, 2)
-                axes[1, 0].set_ylim(-2, 2)
+
 
             # Plot 4: RX Constellation
             if len(streamer.rx_symbols_buffer) > 0:
@@ -390,8 +389,7 @@ def create_animated_transceiver_plot(streamer, bit_stream_gen, update_interval_m
                 axes[1, 1].set_ylabel('Q')
                 axes[1, 1].grid(True, alpha=0.3)
                 axes[1, 1].axis('equal')
-                axes[1, 1].set_xlim(-2, 2)
-                axes[1, 1].set_ylim(-2, 2)
+
 
             # Plot 5: Phase Lock Loop estimate
             if len(streamer.phase_history) > 0:
